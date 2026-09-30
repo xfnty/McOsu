@@ -13,10 +13,11 @@ set "EXE_PATH=%EXE_DIR%\McOsu.exe"
 set "ZIP_PATH=%OUT_DIR%\McOsu-windows-x86.zip"
 set "RES_PATH=%OBJ_DIR%\resources.res"
 set "LDARGS=%OBJ_DIR%\ldargs.txt"
+set "OBJLIST=%OBJ_DIR%\objs.txt"
 
 set "CFLAGS=-DNOMINMAX -DWIN32 -O3 -m32 -Wall -c -fmessage-length=0 -Wno-sign-compare -Wno-unused-local-typedefs -Wno-reorder -Wno-switch -Wno-deprecated-declarations -Wno-vla-cxx-extension -Wno-unused-but-set-variable -fno-stack-check -fno-stack-protector -mno-stack-arg-probe"
 set "LDFLAGS=/INCREMENTAL:NO /NOIMPLIB /NOEXP /NOLOGO"
-set "LDLINKS=%RES_PATH% user32.lib kernel32.lib comdlg32.lib Advapi32.lib ucrt.lib vcruntime.lib msvcrt.lib Comctl32.lib gdi32.lib Shell32.lib bass.lib bass_fx.lib dxgi.lib d3d11.lib d3dcompiler.lib freetype.lib libjpeg.lib"
+set "LDLINKS="%~dp0%RES_PATH%" user32.lib kernel32.lib comdlg32.lib Advapi32.lib ucrt.lib vcruntime.lib msvcrt.lib Comctl32.lib gdi32.lib Shell32.lib bass.lib bass_fx.lib dxgi.lib d3d11.lib d3dcompiler.lib freetype.lib libjpeg.lib"
 
 set "includes=-I"%~dp0%SRC_DIR%\Util""
 set "links="
@@ -69,6 +70,7 @@ where /q link || (
 mkdir "%~dp0%OBJ_DIR%" "%~dp0%EXE_DIR%" 2> nul
 echo Compiling ...
 set "dirty=0"
+type nul>"%~dp0%OBJLIST%"
 del /q /s /f "%~dp0%OBJ_DIR%\*.job" "%~dp0%OBJ_DIR%\*.fail" >nul 2>&1
 for /r "%~dp0%SRC_DIR%" %%a in (*.cpp) do set /a "num_sources+=1"
 for /r "%~dp0%SRC_DIR%" %%a in (*.c) do set /a "num_sources+=1"
@@ -84,9 +86,10 @@ for /r "%~dp0%SRC_DIR%" %%a in (*.cpp) do (
     set "c=!b:*%SRC_DIR%=!"
     mkdir "%~dp0%OBJ_DIR%!c!." 2> nul
     set "obj=%~dp0%OBJ_DIR%!c!%%~na.obj"
+    echo "!obj!">>"%~dp0%OBJLIST%"
     call :IsFileNewerThan "%%a" "!obj!" && (
         set "dirty=1"
-        call :StartCompileJob "%%a" "!obj!" || exit /b 1
+        call :StartCompileJob "%%a" "!obj!" || goto Build_JobFailed
     )
     set /a "num_sources_compiled+=1"
 )
@@ -95,34 +98,36 @@ for /r "%~dp0%SRC_DIR%" %%a in (*.c) do (
     set "c=!b:*%SRC_DIR%=!"
     mkdir "%~dp0%OBJ_DIR%!c!." 2> nul
     set "obj=%~dp0%OBJ_DIR%!c!%%~na.c.obj"
+    echo "!obj!">>"%~dp0%OBJLIST%"
     call :IsFileNewerThan "%%a" "!obj!" && (
         set "dirty=1"
-        call :StartCompileJob "%%a" "!obj!" || exit /b 1
+        call :StartCompileJob "%%a" "!obj!" || goto Build_JobFailed
     )
     set /a "num_sources_compiled+=1"
 )
 :Build_WaitAllLoop
 for %%a in ("%~dp0%OBJ_DIR%\*.job") do timeout /t 1 /nobreak>nul && goto Build_WaitAllLoop
+for %%a in ("%~dp0%OBJ_DIR%\*.fail") do (type %%a && exit /b 1)
 if not exist "%~dp0%EXE_PATH%" set "dirty=1"
 if "!dirty!"=="1" (
     echo Linking ...
     echo %LDFLAGS%>"%~dp0%LDARGS%"
-    echo %LDLINKS%>>"%~dp0%LDARGS%"
-    for /d %%a in (%~dp0%LIB_DIR%\*) do (
-        if exist "%%a/lib/windows" (
-            echo /LIBPATH:"%%a/lib/windows">>"%~dp0%LDARGS%"
-        )
-    )
     echo /LIBPATH:"%VCToolsInstallDir%lib\x86">>"%~dp0%LDARGS%"
     echo /LIBPATH:"%WindowsSdkDir%Lib\%WindowsSDKLibVersion%ucrt\x86">>"%~dp0%LDARGS%"
     echo /LIBPATH:"%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x86">>"%~dp0%LDARGS%"
+    for /d %%a in (%~dp0%LIB_DIR%\*) do if exist "%%a\lib\windows" echo /LIBPATH:"%%a\lib\windows">>"%~dp0%LDARGS%"
     echo /OUT:"%~dp0%EXE_PATH%">>"%~dp0%LDARGS%"
-    for /r "%~dp0%OBJ_DIR%" %%a in (*.obj) do echo "%%a">>"%~dp0%LDARGS%"
+    echo %LDLINKS%>>"%~dp0%LDARGS%"
+    type "%~dp0%OBJLIST%">>"%~dp0%LDARGS%"
     link @"%~dp0%LDARGS%" || exit /b 1
 )
 echo Copying assets ...
 xcopy "%~dp0%BUILD_DIR%" "%~dp0%EXE_DIR%" /s /e /i /y >nul
 exit /b 0
+:Build_JobFailed
+for %%a in ("%~dp0%OBJ_DIR%\*.fail") do (type %%a && exit /b 1)
+echo error: build failed.
+exit /b 1
 
 :Pack
 if not exist "%~dp0%EXE_PATH%" (
@@ -157,11 +162,10 @@ set "jobname=%RANDOM%"
 set "jobfile=%~dp0%OBJ_DIR%\!jobname!.job"
 set "jobfail=%~dp0%OBJ_DIR%\!jobname!.fail"
 set "jobcmd=clang %CFLAGS% !includes! -o "%~2" "%~1"2>>"!jobfile!""
-echo !jobcmd!>"!jobfile!"
-echo.>>"!jobfile!"
+type nul>"!jobfile!"
 :StartCompileJob_WaitLoop
 set "jobs=0"
-for %%a in ("%~dp0%OBJ_DIR%\*.fail") do type %%a & exit /b 1
+for %%a in ("%~dp0%OBJ_DIR%\*.fail") do exit /b 1
 for %%a in ("%~dp0%OBJ_DIR%\*.job") do set /a "jobs+=1"
 if !jobs! gtr %MAX_PARALLEL_JOBS% goto StartCompileJob_WaitLoop
 set "a=%~1"
