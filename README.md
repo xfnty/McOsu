@@ -1,25 +1,17 @@
-![](.github/screenshot.png)
+<p align="center">
+  <img width="640" src=".github/screenshot.png">
+</p>
 
-This is a fork of [McOsu][mcosu] that can save replays and is stripped of unnecessary features.
+This is a fork of [McOsu][mcosu] with a couple of changes to save replays.
 
 Reallistically, it is only useful for people like me whose computer can't quite handle neither stable nor
-neomod and who still want to play Osu and share replays with friends.
+[neomod][neomod] and who still want to play Osu and share replays with friends.
 
-### Differences from the original
+Currently it saves all replays under `replays/` folder.
 
-- [ ] Saves replays
-  - [x] Always save the most recent replay as `.osr` *(currently saves all replays under `replays/` folder)*
-  - [ ] Save replay in a thread
-  - [ ] Add "Save Replay (F2)" label to score screen, Open SaveFileDialog when pressing F2 then show the file in explorer
-- [ ] Writes crash reports
-  - [ ] Via VEH that dumps stack with source infos
-  - [ ] Write debugLog either into console or log file
-- [ ] Lazer-like sliders
-  - [x] Write shader for slider bodies
-  - [ ] Write shader for circles and slider heads
-  - [ ] Fix slidergradient.png
-- [ ] Less bloat
-  - [ ] Remove support for OpenGL, Steam, VR, physics, 3D, discord, multiplayer, OpenCL, vulkan
+**Download the latest build [here][dl].**
+
+For a more advanced fork see [neosu][neosu].
 
 ### Compiling
 
@@ -35,3 +27,6 @@ tar -acf McOsu-windows-x86.zip -C bin\release *
 ```
 
 [mcosu]: https://github.com/McKay42/McOsu/tree/db2add20ea291f6f3b6d022fcd4eba100a5bd161
+[neomod]: https://neomod.net
+[neosu]: https://git.kiwec.net/kiwec/neosu
+[dl]: https://github.com/xfnty/McOsu/releases/latest
