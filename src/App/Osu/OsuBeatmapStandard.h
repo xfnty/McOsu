@@ -8,6 +8,8 @@
 #ifndef OSUBEATMAPSTANDARD_H
 #define OSUBEATMAPSTANDARD_H
 
+#include <vector>
+
 #include "OsuBeatmap.h"
 
 class OsuBackgroundStarCacheLoader;
@@ -185,6 +187,14 @@ private:
 	bool m_bInMafhamRenderChunk; // used by OsuSlider to not animate the reverse arrow, and by OsuCircle to not animate note blocking shaking, while being rendered into the scene buffer
 
 	int m_iMandalaIndex;
+
+	struct ReplayEvent {
+		long t;
+		float x, y;
+		int buttons;
+	};
+
+	std::vector<ReplayEvent> m_replayEvents;
 };
 
 #endif

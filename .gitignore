@@ -1,1 +1,4 @@
-out/
+bin/
+cmake/
+CMakeUserPresets.json
+McOsu-windows-x86.zip

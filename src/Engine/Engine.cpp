@@ -39,7 +39,10 @@
 #include "ConsoleBox.h"
 #include "VisualProfiler.h"
 
-
+#ifdef _WIN32
+#include <windows.h>
+static HANDLE s_hcon;
+#endif
 
 //********************//
 //	Include App here  //
@@ -130,6 +133,11 @@ Engine::Engine(Environment *environment, const char *args)
 	// disable output buffering (else we get multithreading issues due to blocking)
 	setvbuf(stdout, NULL, _IONBF, 0);
 	setvbuf(stderr, NULL, _IONBF, 0);
+
+#ifdef _WIN32
+	AttachConsole(ATTACH_PARENT_PROCESS);
+	s_hcon = GetStdHandle(STD_OUTPUT_HANDLE);
+#endif
 
 	// print debug information
 	debugLog("-= Engine Startup =-\n");
@@ -828,8 +836,15 @@ void Engine::debugLog(const char *fmt, va_list args)
 	va_list ap2;
 	va_copy(ap2, args);
 
-	// write to console
+	int numChars = 0;
+
+#ifdef _WIN32
+	char b[4096];
+	numChars = vsnprintf(b, sizeof(b), fmt, ap2);
+	WriteConsoleA(s_hcon, b, numChars, 0, 0);
+#else
 	int numChars = vprintf(fmt, args);
+#endif
 
 	if (numChars < 1 || numChars > 65534)
 		goto cleanup;
@@ -861,8 +876,15 @@ void Engine::debugLog(Color color, const char *fmt, va_list args)
 	va_list ap2;
 	va_copy(ap2, args);
 
-	// write to console
+	int numChars = 0;
+
+#ifdef _WIN32
+	char b[4096];
+	numChars = vsnprintf(b, sizeof(b), fmt, ap2);
+	WriteConsoleA(s_hcon, b, numChars, 0, 0);
+#else
 	int numChars = vprintf(fmt, args);
+#endif
 
 	if (numChars < 1 || numChars > 65534)
 		goto cleanup;

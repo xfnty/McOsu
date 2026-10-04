@@ -36,11 +36,15 @@
 #include "OsuSlider.h"
 #include "OsuSpinner.h"
 
+#include "pocketlzma.hpp"
+
+#include <format>
 #include <string.h>
 #include <sstream>
 #include <cctype>
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 
 ConVar osu_draw_followpoints("osu_draw_followpoints", true, FCVAR_NONE);
 ConVar osu_draw_reverse_order("osu_draw_reverse_order", false, FCVAR_NONE);
@@ -927,6 +931,19 @@ void OsuBeatmapStandard::update()
 		if (m_bInBreak || m_bIsInSkippableSection || m_bIsSpinnerActive || m_iCurrentHitObjectIndex < 1)
 			m_iAllowAnyNextKeyForFullAlternateUntilHitObjectIndex = m_iCurrentHitObjectIndex + 1;
 	}
+
+	if (m_bIsPlaying && !m_bIsPaused && !m_bIsPreLoading && !m_bIsWaiting) {
+        Vector2 c = pixels2OsuCoords(getCursorPos());
+        m_replayEvents.push_back(
+        	ReplayEvent{
+        		getCurMusicPosWithOffsets(),
+        		c.x,
+        		c.y,
+        		(m_bClick1Held << 0) | (m_bClick1Held << 2)
+        		| (m_bClick2Held << 1) | (m_bClick2Held << 3)
+        	}
+        );
+	}
 }
 
 void OsuBeatmapStandard::onModUpdate(bool rebuildSliderVertexBuffers, bool recomputeDrainRate)
@@ -1612,6 +1629,8 @@ void OsuBeatmapStandard::onPlayStart()
 	debugLog("OsuBeatmapStandard::onPlayStart()\n");
 
 	onModUpdate(false, false); // if there are calculations in there that need the hitobjects to be loaded, also applies speed/pitch
+
+	m_replayEvents.clear();
 }
 
 void OsuBeatmapStandard::onBeforeStop(bool quit)
@@ -1751,12 +1770,178 @@ void OsuBeatmapStandard::onBeforeStop(bool quit)
 	}
 }
 
+template <typename T>
+static std::ostream& bwrite(std::ostream& stream, const T& value) {
+    return stream.write(reinterpret_cast<const char*>(&value), sizeof(T));
+}
+
+static std::ostream& bwriteb(std::ostream& stream, const void *b, size_t s) {
+    return stream.write((const char*)b, s);
+}
+
 void OsuBeatmapStandard::onStop(bool quit)
 {
 	debugLog("OsuBeatmapStandard::onStop()\n");
 
 	if (quit)
 		m_osu->getMultiplayer()->onServerPlayStateChange(OsuMultiplayer::STATE::STOP);
+
+	// ==== saving replay ==== //
+
+	OsuScore *score = m_osu->getScore();
+	UString player = convar->getConVarByName("name")->getString();
+	UString mods = score->getModsStringForRichPresence();
+	std::string beatmapHash = getSelectedDifficulty2()->getMD5Hash();
+	auto now = std::chrono::system_clock::now();
+	auto local_time = std::chrono::zoned_time{std::chrono::current_zone(), now};
+	auto local_time_sec = std::chrono::floor<std::chrono::seconds>(local_time.get_local_time());
+	uint64_t timestamp = 621355968000000000LL + std::chrono::duration_cast<std::chrono::duration<int64_t, std::ratio<1, 10000000>>>(now.time_since_epoch()).count();
+
+	std::string filename;
+	if (mods.length()) {
+		filename = std::format(
+			"{} - {} [{}] {} {:.2f}% ({:%H.%M.%S-%d.%m.%Y}).osr",
+			getArtist().toUtf8(),
+			getTitle().toUtf8(),
+			getSelectedDifficulty2()->getDifficultyName().toUtf8(),
+			mods.toUtf8(),
+			score->getAccuracy()*100,
+			local_time_sec
+		);
+	} else {
+		filename = std::format(
+			"{} - {} [{}] {:.2f}% ({:%H.%M.%S-%d.%m.%Y}).osr",
+			getArtist().toUtf8(),
+			getTitle().toUtf8(),
+			getSelectedDifficulty2()->getDifficultyName().toUtf8(),
+			score->getAccuracy()*100,
+			local_time_sec
+		);
+	}
+
+	std::error_code err;
+	std::filesystem::create_directories("replays", err);
+
+	if (err) {
+		debugLog("error: failed to create replay folder (%s)\n", err.message().c_str());
+    } else {
+    	filename = "replays\\" + filename;
+    }
+
+	debugLog("Saving replay to \"%s\" ...\n", filename.c_str());
+	std::ofstream out(filename, std::ios::binary);
+	if (!out || !out.is_open()) {
+		debugLog("error: failed to open .osr file\n");
+
+		filename = ((!err) ? ("replays\\") : ("")) + std::format("{} {}.osr", beatmapHash.c_str(), timestamp);
+		debugLog("Attempting to save again as \"%s\"\n", filename.c_str());
+
+		out.open(filename, std::ios::binary);
+		if (!out || !out.is_open()) {
+			debugLog("error: failed to save replay again\n");
+			return;
+		}
+	}
+
+	// mode
+	bwrite(out, (uint8_t)0);
+
+	// game version
+	bwrite(out, (uint32_t)20260924);
+
+	// beatmap MD5 hash
+	bwrite(out, (uint8_t)11);
+	bwrite(out, (uint8_t)beatmapHash.size());
+	bwriteb(out, beatmapHash.c_str(), beatmapHash.size());
+
+	// player name
+	bwrite(out, (uint8_t)11);
+	bwrite(out, (uint8_t)player.lengthUtf8());
+	bwriteb(out, player.toUtf8(), player.lengthUtf8());
+
+	// replay MD5 hash
+	bwrite(out, (uint8_t)11);
+	bwrite(out, (uint8_t)0);
+
+	// score
+	bwrite(out, (uint16_t)score->getNum300s());
+	bwrite(out, (uint16_t)score->getNum100s());
+	bwrite(out, (uint16_t)score->getNum50s());
+	bwrite(out, (uint16_t)score->getNum300gs());
+	bwrite(out, (uint16_t)score->getNum100s());
+	bwrite(out, (uint16_t)score->getNumMisses());
+	bwrite(out, (uint32_t)score->getScore());
+	bwrite(out, (uint16_t)score->getComboMax());
+	bwrite(out, (uint8_t)(score->getNumMisses() == 0 && score->getNumSliderBreaks() == 0));
+
+	// mods
+	bwrite(
+		out,
+		(uint32_t)(
+			(uint32_t)m_osu->getModNF()
+			| ((uint32_t)m_osu->getModEZ() << 1)
+			| ((uint32_t)m_osu->getModHD() << 3)
+			| ((uint32_t)m_osu->getModHR() << 4)
+			| ((uint32_t)m_osu->getModSD() << 5)
+			| ((uint32_t)m_osu->getModDT() << 6)
+			| ((uint32_t)m_osu->getModRelax() << 7)
+			| ((uint32_t)m_osu->getModHT() << 8)
+			| ((uint32_t)m_osu->getModNC() << 9)
+			| ((uint32_t)m_osu->getModAutopilot() << 11)
+			| ((uint32_t)m_osu->getModScorev2() << 29)
+		)
+	);
+
+	// life bar graph
+	bwrite(out, (uint8_t)11);
+	bwrite(out, (uint8_t)0);
+
+	// timestamp
+	bwrite(out, timestamp);
+
+	// compressed replay data
+	std::ostringstream raw_text(std::ios::binary);
+	if (m_replayEvents.size()) {
+    	raw_text
+            << m_replayEvents[0].t
+            << "|" << m_replayEvents[0].x
+            << "|" << m_replayEvents[0].y
+            << "|" << m_replayEvents[0].buttons
+            << ',';
+        for (size_t i = 1; i < m_replayEvents.size(); i++) {
+            raw_text
+	            << m_replayEvents[i].t - m_replayEvents[i-1].t
+	            << "|" << m_replayEvents[i].x
+	            << "|" << m_replayEvents[i].y
+	            << "|" << m_replayEvents[i].buttons
+	            << ',';
+        }
+    }
+    raw_text << "-12345|0|0|0";
+    std::string raw_text_str = raw_text.str();
+	std::vector<uint8_t> raw_data(raw_text_str.begin(), raw_text_str.end());
+	std::vector<uint8_t> compressed_data;
+	plz::PocketLzma compressor;
+	plz::StatusCode status = compressor.compress(raw_data, compressed_data);
+	if (status != plz::StatusCode::Ok) {
+		debugLog("error: failed to compress data! (%d)\n", (int)status);
+	}
+	// pocketlzma writes the uncompressed size the second time into the padding after the field in LZMA1
+	// header which gets rejected by python's lzma package.
+	compressed_data[9] = 0;
+	compressed_data[10] = 0;
+	compressed_data[11] = 0;
+	compressed_data[12] = 0;
+	bwrite(out, (uint32_t)compressed_data.size());
+	bwriteb(out, compressed_data.data(), compressed_data.size());
+
+	// online score ID
+	bwrite(out, (uint64_t)0);
+
+	out.close();
+	if (!out) {
+		debugLog("error: failed to close replay file\n");
+	}
 }
 
 void OsuBeatmapStandard::onPaused(bool first)
