@@ -22,7 +22,7 @@ This fork, however, compiles with Clang/link and targets 32-bit Windows only.
 ```bat
 cmake --preset release
 cmake --build --preset release
-start "" /b /wait /d bin bin\release\McEngine.exe
+start "" /b /wait /d bin\release bin\release\McEngine.exe
 tar -acf McOsu-windows-x86.zip -C bin\release *
 ```
 

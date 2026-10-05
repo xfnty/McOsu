@@ -1789,7 +1789,7 @@ void OsuBeatmapStandard::onStop(bool quit)
 	// ==== saving replay ==== //
 
 	OsuScore *score = m_osu->getScore();
-	UString player = convar->getConVarByName("name")->getString();
+	std::string player = std::string(convar->getConVarByName("name")->getString().toUtf8()) + " (McOsu)";
 	UString mods = score->getModsStringForRichPresence();
 	std::string beatmapHash = getSelectedDifficulty2()->getMD5Hash();
 	auto now = std::chrono::system_clock::now();
@@ -1856,8 +1856,8 @@ void OsuBeatmapStandard::onStop(bool quit)
 
 	// player name
 	bwrite(out, (uint8_t)11);
-	bwrite(out, (uint8_t)player.lengthUtf8());
-	bwriteb(out, player.toUtf8(), player.lengthUtf8());
+	bwrite(out, (uint8_t)player.size());
+	bwriteb(out, player.data(), player.size());
 
 	// replay MD5 hash
 	bwrite(out, (uint8_t)11);
